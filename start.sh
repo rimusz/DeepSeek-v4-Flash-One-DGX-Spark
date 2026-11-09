@@ -3,9 +3,9 @@
 # DeepSeek V4 Flash 0731 (EXL3/ExLlamaV3) on one NVIDIA DGX Spark.
 #
 # ┌──────────────────────────────────────────────────────────────────────────┐
-# │ MULTI-SEQ PROFILE — 8 concurrent sequences / 256k / port 8001 / DSpark K5 │
-# │ Native 432 B NVFP4 KV + util 0.94. CUDA graphs sized for 8×K5 (8,16,48). │
-# │ Based on MiaAI-Lab/DeepSeek-v4-Flash-One-DGX-Spark; writes ./compose.yml. │
+# │ MULTI-SEQ PROFILE — 6 concurrent sequences / 256k / port 8001 / DSpark K5 │
+# │ Native 432 B NVFP4 KV + util 0.94. CUDA graphs sized for 6×K5 (6,12,36). │
+# │ Active streams share GPU/KV. Based on MiaAI; writes ./compose.yml.        │
 # └──────────────────────────────────────────────────────────────────────────┘
 #
 
@@ -26,7 +26,7 @@
 # The runtime image is aarch64-only and needs the NVIDIA Container Toolkit.
 #
 # Usage:
-#   ./start.sh              # start multi-seq (8/256k/:8001) + wait for /health
+#   ./start.sh              # start multi-seq (6/256k/:8001) + wait for /health
 #   ./start.sh --no-wait    # start without waiting for /health
 #   ./start.sh mount        # mount the shared folder (no-op in local mode)
 #   ./start.sh unmount      # unmount the shared folder
@@ -67,8 +67,8 @@ export HF_TOKEN="${HF_TOKEN:-}"
 IMAGE_DIGEST="ghcr.io/0xsero/deepseek-v4-flash-0731-spark-sparkinfer@sha256:2e077489a83a0360952828051fe7f7a32c1801e5ce8436d85f7267583d614ff4"
 
 SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-deepseek-v4-flash-0731}"
-MAX_MODEL_LEN="${MAX_MODEL_LEN:-256000}"   # per-sequence context for 8-way concurrent serving
-MAX_NUM_SEQS="${MAX_NUM_SEQS:-8}"          # concurrent sequences (this repo is multi-seq only)
+MAX_MODEL_LEN="${MAX_MODEL_LEN:-256000}"   # per-sequence context for 6-way concurrent serving
+MAX_NUM_SEQS="${MAX_NUM_SEQS:-6}"          # concurrent sequences (admission ceiling; live streams share GPU/KV)
 MAX_NUM_BATCHED_TOKENS="${MAX_NUM_BATCHED_TOKENS:-8224}"  # also sizes+locks the b12x MLA workspace after warmup — do not lower to recover KV (crashes later on a wide attend; see README)
 MODE="${MODE:-dspark}"                 # fixed K5 DSpark speculative draft
 GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.94}"   # 256k needs the extra ~1.2 GiB (0.93 leaves only 6.32 GiB KV < 6.99 needed). Boot-safe BECAUSE restart: on-failure:1 can never loop: worst case one clean exit. Requires free host RAM >= 0.94*121.63 = 114.3 GiB at launch (check free -h; stop the old container first).
@@ -147,16 +147,16 @@ MAX_NUM_PARTIAL_PREFILLS="${MAX_NUM_PARTIAL_PREFILLS:-0}"            # 0=off, 2=
 
 # --- CudaGraph capture sizes (PLAN.md P2) --------------------------------
 # The image defaults both of these to 6, which caps cuDAG capture at batch 6.
-# DSpark verification schedules up to MAX_NUM_SEQS * (k+1) = 8*6 = 48 rows;
+# DSpark verification schedules up to MAX_NUM_SEQS * (k+1) = 6*6 = 36 rows;
 # decode batches above the captured size fall back to eager execution. These
 # knobs raise the cap so concurrent decode stays on captured graphs.
 #   MAX_CUDAGRAPH_CAPTURE_SIZE: cap for --max-cudagraph-capture-size.
-#     In that image the safe maximum is seqs*(k+1) = 48 at this profile;
+#     In that image the safe maximum is seqs*(k+1) = 36 at this profile;
 #     capturing beyond the physical verifier row count only wastes graph
 #     memory (serve-ds4-flash.sh comment).
 #   CUDAGRAPH_CAPTURE_SIZES: explicit capture list. 0=leave to image default.
-MAX_CUDAGRAPH_CAPTURE_SIZE="${MAX_CUDAGRAPH_CAPTURE_SIZE:-48}"   # seqs*(K+1)=8*6 for K5
-CUDAGRAPH_CAPTURE_SIZES="${CUDAGRAPH_CAPTURE_SIZES:-8,16,48}"     # seqs, 2*seqs, seqs*(K+1)
+MAX_CUDAGRAPH_CAPTURE_SIZE="${MAX_CUDAGRAPH_CAPTURE_SIZE:-36}"   # seqs*(K+1)=6*6 for K5
+CUDAGRAPH_CAPTURE_SIZES="${CUDAGRAPH_CAPTURE_SIZES:-6,12,36}"     # seqs, 2*seqs, seqs*(K+1)
 
 # --- KV pool headroom search (PLAN.md P5: KV sweep) -----------------------
 # VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS: the profiler over-reserves

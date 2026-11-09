@@ -1,14 +1,14 @@
-# DeepSeek V4 Flash EXL3 — 8 concurrent seqs on one DGX Spark
+# DeepSeek V4 Flash EXL3 — 6 concurrent seqs on one DGX Spark
 
-OpenAI-compatible serving of **DeepSeek V4 Flash 0731 (EXL3)** on a single **NVIDIA DGX Spark**, configured for **8 concurrent sequences** (agents / parallel chats).
+OpenAI-compatible serving of **DeepSeek V4 Flash 0731 (EXL3)** on a single **NVIDIA DGX Spark**, configured for **6 concurrent sequences** (agents / parallel chats). Active streams **share** GPU decode and the KV pool (continuous batching): two live requests use the whole budget together; six short ones split it.
 
 | Setting | Default |
 |---------|---------|
-| Concurrent sequences | **8** |
+| Concurrent sequences | **6** |
 | Context per sequence | **256000** |
 | Port | **8001** |
 | Speculative decoding | DSpark **K5** |
-| CUDA graphs | **8, 16, 48** |
+| CUDA graphs | **6, 12, 36** |
 
 Model: [`0xSero/deepseek-v4-flash-0731-spark`](https://huggingface.co/0xSero/deepseek-v4-flash-0731-spark) (EXL3 3.0 bpw, REAP-K216) via sparkinfer / DSpark.
 
@@ -40,16 +40,18 @@ First boot pulls the image, downloads weights into `./hf-hub`, coalesces TP1, bu
 ```bash
 MAX_NUM_SEQS=4 ./start.sh
 MAX_MODEL_LEN=192000 ./start.sh
+# Mia deep-context style (single stream):
+MAX_NUM_SEQS=1 MAX_MODEL_LEN=384000 SERVING_PORT=8888 ./start.sh
 ```
 
 | Variable | Default | Notes |
 |----------|---------|-------|
-| `MAX_NUM_SEQS` | `8` | concurrent sequences |
+| `MAX_NUM_SEQS` | `6` | concurrent sequences (admission ceiling; live streams share GPU/KV) |
 | `MAX_MODEL_LEN` | `256000` | per-sequence context ceiling |
 | `SERVING_PORT` | `8001` | OpenAI-compatible port |
 | `DSPARK_TOKENS` | `5` | DSpark speculation depth (K); engine floor is K5 |
 | `MAX_NUM_BATCHED_TOKENS` | `8224` | leave alone — load-bearing for MLA workspace |
-| `CUDAGRAPH_CAPTURE_SIZES` | `8,16,48` | seqs, 2×seqs, seqs×(K+1) |
+| `CUDAGRAPH_CAPTURE_SIZES` | `6,12,36` | seqs, 2×seqs, seqs×(K+1) |
 
 ---
 
@@ -69,7 +71,7 @@ MAX_MODEL_LEN=192000 ./start.sh
 | Base URL | `http://127.0.0.1:8001/v1` |
 | Model id | `deepseek-v4-flash-0731` |
 | Context window | up to **256000** |
-| Concurrent clients | up to **8** seqs |
+| Concurrent clients | up to **6** seqs (shared GPU/KV) |
 
 Binds `0.0.0.0` by default (`network_mode: host`). No auth on the port — keep it on a trusted network, or `SERVING_HOST=127.0.0.1 ./start.sh`.
 
